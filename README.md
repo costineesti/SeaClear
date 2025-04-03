@@ -1,8 +1,8 @@
 # SeaClear
 
-Repository of SeaClear project. Moved to GitHub.
+Repository of [SeaClear](https://costinchitic.co/seaclear) project. Moved to GitHub.
 
-My contribution:
+## My contribution:
 * aruco.py
 * camera_sync_recorder.py
 * grid_detection.py (WIP)
