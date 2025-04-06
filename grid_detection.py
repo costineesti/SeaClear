@@ -155,9 +155,9 @@ def main():
                                                 # POSTPROCESSING #
 
         lsd = cv2.createLineSegmentDetector(0)
-        lsd_lines = lsd.detect(edges)[0]  # Use blurred image
+        lsd_lines = lsd.detect(edges)[0]
         # FILTER NOISE
-        min_length = 30  # adjust based on resolution
+        min_length = 30
         filtered_lines = []
 
         for line in lsd_lines:
@@ -167,8 +167,10 @@ def main():
                 filtered_lines.append(line)
         
         horizontal_lines, vertical_lines = sort_lsd_lines(filtered_lines)
+
         horizontal_lines_sorted = sorted(horizontal_lines, key=lambda l: (l[0][1] + l[0][3]) / 2)
         vertical_lines_sorted = sorted(vertical_lines, key=lambda l: (l[0][0] + l[0][2]) / 2)
+
         coord_frame_x, coord_frame_y = get_intersection_point(horizontal_lines_sorted[-1], vertical_lines_sorted[-1])
         horizontal_y = simplify_lines(horizontal_lines, axis='horizontal', threshold=10)
         vertical_x = simplify_lines(vertical_lines, axis='vertical', threshold=10)
