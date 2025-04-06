@@ -6,14 +6,6 @@ import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 import os
-from collections import deque
-
-def angle_of_line(line):
-    x1, y1, x2, y2 = line
-    dx = x2 - x1
-    dy = y2 - y1
-    angle = np.arctan2(dy, dx) * 180.0 / np.pi
-    return angle
 
 def rescaleFrame(frame):
     #rescale image
@@ -32,55 +24,102 @@ def rescaleFrame(frame):
 
     return roi, x_min, y_min, x_max, y_max
 
-def mergeNearestLines(lines, threshold=50):
-    horizontal_lines = []
-    vertical_lines = []
+def draw_coordinate_frame(img, x, y, length=40):
+    # X-axis (red)
+    cv2.arrowedLine(img, (x, y), (x + length, y), (0, 0, 255), 2, tipLength=0.3)
+    # Y-axis (green)
+    cv2.arrowedLine(img, (x, y), (x, y - length), (0, 255, 0), 2, tipLength=0.3)
 
+"""
+For coordinate frame
+"""
+def get_intersection_point(h_line, v_line):
+    x1, y1, x2, y2 = h_line[0]
+    x3, y3, x4, y4 = v_line[0]
+
+    A1 = y2 - y1
+    B1 = x1 - x2
+    C1 = A1 * x1 + B1 * y1
+
+    A2 = y4 - y3
+    B2 = x3 - x4
+    C2 = A2 * x3 + B2 * y3
+
+    det = A1 * B2 - A2 * B1
+    if det == 0:
+        return None  # lines are parallel
+    else:
+        x = (B2 * C1 - B1 * C2) / det
+        y = (A1 * C2 - A2 * C1) / det
+        return int(x), int(y)
+
+def index_squares(image, horizontal_lines, vertical_lines):
+    index = 1
+
+    for i in range(len(horizontal_lines) - 1):
+        for j in range(len(vertical_lines) - 1):
+            x = vertical_lines[j]
+            y = horizontal_lines[i]
+
+            # Draw the index in blue at the top-left corner
+            cv2.putText(image, str(index), 
+                        (x + 3, y + 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 
+                        0.6,                              
+                        (255, 0, 0),                      
+                        1, 
+                        cv2.LINE_AA)
+            index += 1
+
+    return index-1
+
+def simplify_lines(lines, axis='horizontal', threshold=5):
+    """
+    Groups nearby lines (by Y for horizontal, by X for vertical) and averages them.
+    Returns simplified line list.
+    """
+    coords = []
     for line in lines:
         x1, y1, x2, y2 = line[0]
-        if abs(y1-y2) < 50: # Horizontal line
-            horizontal_lines.append(y1)
-        elif abs(x1-x2) < 10: # Vertical line
-            vertical_lines.append(x1)
+        coord = (y1 + y2) / 2 if axis == 'horizontal' else (x1 + x2) / 2
+        coords.append(coord)
+    
+    coords = sorted(coords)
+    grouped = []
+    group = []
+
+    for c in coords:
+        if not group or abs(c - group[-1]) < threshold:
+            group.append(c)
+        else:
+            grouped.append(int(np.mean(group)))
+            group = [c]
+    if group:
+        grouped.append(int(np.mean(group)))
+
+    return grouped
+
+def sort_lsd_lines(lsd_lines, angle_threshold=10):
+    horizontal_lines=[]
+    vertical_lines=[]
+
+    for line in lsd_lines:
+        x1, y1, x2, y2 = line[0]
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
         
-    horizontal_lines = sorted(set(horizontal_lines)) # Build an ordered collection of unique elements
-    vertical_lines = sorted(set(vertical_lines))
+        # Normalize angle to [-90, 90]
+        angle = (angle + 180) % 180
+        if angle > 90:
+            angle -= 180
 
-    def mergeLines(line_positions, threshold):
-        merged_lines = []
-        current_line = line_positions[0]
+        if abs(angle) < angle_threshold:
+            horizontal_lines.append(line)
+        elif abs(angle - 90) < angle_threshold:
+            vertical_lines.append(line)
+    return horizontal_lines, vertical_lines
 
-        for line in line_positions[1:]:
-            if line - current_line <= threshold: # Filter
-                continue
-            else:
-                merged_lines.append(current_line)
-                current_line = line
 
-        merged_lines.append(current_line)
-        return merged_lines
-    
-    merged_horizontal_lines = mergeLines(horizontal_lines, threshold)
-    merged_vertical_lines = mergeLines(vertical_lines, threshold)
-
-    return merged_horizontal_lines, merged_vertical_lines
-
-# To avoid always finding the lines from scratch.
-def average_lines(line_history, history_length=5):
-    if not line_history:
-        return []
-    
-    # Pad with last entry if history is shorter than expected
-    if len(line_history) < history_length:
-        line_history = list(line_history)
-        last = line_history[-1]
-        for _ in range(history_length - len(line_history)):
-            line_history.append(last)
-
-    # Transpose to group same-line indices
-    grouped = list(zip(*line_history))
-    avg_lines = [int(np.mean(group)) for group in grouped]
-    return avg_lines
+                                                     # MAIN #
 
 def main():
     rospy.init_node('grid_detection_roi', anonymous=True)
@@ -106,9 +145,8 @@ def main():
         roi_frame, x_min, y_min, x_max, y_max = rescaleFrame(frame)
         gray = cv2.cvtColor(roi_frame, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5,5), 0)
-
         edges = cv2.Canny(blur, 50, 150, apertureSize=3)
-        kernel = np.ones((2,2), np.uint8)
+        kernel = np.ones((3,3), np.uint8)
         edges = cv2.dilate(edges, kernel, iterations=2)
         edges = cv2.erode(edges, kernel, iterations=2)
 
@@ -116,26 +154,32 @@ def main():
 
                                                 # POSTPROCESSING #
 
-        #lines = cv2.HoughLines(edges, rho=1, theta=np.pi/180, threshold=240)
-        lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 180, threshold=240, minLineLength=150, maxLineGap=8)
-        horizontal, vertical = mergeNearestLines(lines)
-        max_history = 5
-        horizontal_history = deque(maxlen=max_history)
-        vertical_history = deque(maxlen=max_history)
-        horizontal_history.append(horizontal)
-        vertical_history.append(vertical)
+        lsd = cv2.createLineSegmentDetector(0)
+        lsd_lines = lsd.detect(edges)[0]  # Use blurred image
+        # FILTER NOISE
+        min_length = 30  # adjust based on resolution
+        filtered_lines = []
 
-        stable_horizontal = average_lines(horizontal_history)
-        stable_vertical = average_lines(vertical_history)
+        for line in lsd_lines:
+            x1, y1, x2, y2 = line[0]
+            length = np.hypot(x2 - x1, y2 - y1)
+            if length > min_length:
+                filtered_lines.append(line)
+        
+        horizontal_lines, vertical_lines = sort_lsd_lines(filtered_lines)
+        horizontal_lines_sorted = sorted(horizontal_lines, key=lambda l: (l[0][1] + l[0][3]) / 2)
+        vertical_lines_sorted = sorted(vertical_lines, key=lambda l: (l[0][0] + l[0][2]) / 2)
+        coord_frame_x, coord_frame_y = get_intersection_point(horizontal_lines_sorted[-1], vertical_lines_sorted[-1])
+        horizontal_y = simplify_lines(horizontal_lines, axis='horizontal', threshold=10)
+        vertical_x = simplify_lines(vertical_lines, axis='vertical', threshold=10)
 
-        img_with_merged_lines = np.copy(frame)
-        for y in stable_horizontal:
-            cv2.line(img_with_merged_lines, pt1=(x_min, y+y_min), pt2=(x_max, y+y_min), color=(0,255,0), thickness=2)
-        for x in stable_vertical:
-            cv2.line(img_with_merged_lines, pt1=(x+x_min, y_min), pt2=(x+x_min, y_max), color=(0,255,0), thickness=2)
-        cv2.imwrite('hough.jpg',img_with_merged_lines)
-            # line flags
+        postprocessing_image = np.copy(roi_frame)
+        squares_nbr = index_squares(postprocessing_image, horizontal_y, vertical_x)
+        draw_coordinate_frame(postprocessing_image, coord_frame_x, coord_frame_y)
+        drawn = lsd.drawSegments(postprocessing_image, np.array(filtered_lines))
+        cv2.imwrite('lsd.jpg', drawn)
 
+        # publish
         # image_pub.publish(bridge.cv2_to_imgmsg(bw, encoding="mono8"))
         rate.sleep()
 
