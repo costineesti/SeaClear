@@ -30,16 +30,26 @@ def computeGridLines(lsd_lines):
 
     return horizontal_lines, vertical_lines, filtered_lines
 
-def getGridSquareParameters(horizontal, vertical):
-    _, width = simplify_lines(horizontal, 
-                              axis='horizontal', 
-                              threshold=10)
+def getGridSquareParameters(horizontal, vertical, iterations = 10):
+
+    width_list = []
+    length_list = []
+
+    for i in range(iterations):
+        _, width = simplify_lines(horizontal, 
+                                axis='horizontal', 
+                                threshold=10)
+        width_list.append(width)
+        
+        _, length = simplify_lines(vertical, 
+                                axis='vertical', 
+                                threshold=10)
+        length_list.append(length)
     
-    _, length = simplify_lines(vertical, 
-                               axis='vertical', 
-                               threshold=10)
+    generalWidth = np.mean(np.array(width_list))
+    generalLength = np.mean(np.array(length_list))
     
-    return width, length
+    return generalWidth, generalLength
 
 def rescaleFrame(frame):
     #rescale image
@@ -96,7 +106,6 @@ def simplify_lines(lines, axis='horizontal', threshold=5):
     diffs = np.diff(np.array(grouped))
     average = np.mean(diffs)
 
-    print(f'average: {average}, axis: {axis}')
     return grouped, average
 
 def sort_lsd_lines(lsd_lines, angle_threshold=10):
@@ -119,6 +128,26 @@ def sort_lsd_lines(lsd_lines, angle_threshold=10):
     return horizontal_lines, vertical_lines
 
 
+"""
+Overlay a grid of 12 x 19 on an image starting with the reference point.
+228 squares in total. The amount the grid has in real life.
+"""
+def overlayGrid(width, length, referencePoint, img, cols = 12, rows = 19):
+    
+    for i in range(228):
+        row = i // cols
+        col = i % cols
+
+        top_left = (
+            int(referencePoint[0] - (cols - col) * width),
+            int(referencePoint[1] - (rows - row) * length))
+        bottom_right = (int(top_left[0] + width), 
+                        int(top_left[1] + length))
+
+        cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 1)
+
+    return img
+
                                                      # MAIN #
 
 def main():
@@ -127,6 +156,8 @@ def main():
 
     video_path = os.path.expanduser('~/Videos/GX010179.MP4')
     cap = cv2.VideoCapture(video_path)
+
+    GETPARAMS = True # To only get width and length once!
 
     if not cap.isOpened():
         rospy.logerr(f"Cannot open video file at {video_path}")
@@ -191,17 +222,20 @@ def main():
 
         lsd = cv2.createLineSegmentDetector(0)
         lsd_lines = lsd.detect(edges)[0]
-        
         horizontal_lines, vertical_lines, filtered_lines = computeGridLines(lsd_lines)
-        generalWidth, generalLength = getGridSquareParameters(horizontal_lines, vertical_lines)
-        postprocessing_image = np.copy(roi_frame)
 
-        # Get REFERENCE POINT for the generated grid.
+        if GETPARAMS:
+            global generalWidth, generalLength
+            generalWidth, generalLength = getGridSquareParameters(horizontal_lines, vertical_lines)
+            GETPARAMS = False
 
-        drawn = lsd.drawSegments(postprocessing_image, np.array(filtered_lines))
-        cv2.imwrite('lsd.jpg', drawn)
+        postprocessing_image = np.copy(frame)
+        postprocessing_final = overlayGrid(generalLength, generalWidth, referencePoint, postprocessing_image)
+        cv2.imwrite('final.jpg', postprocessing_final)
 
-        # publish
+        test, _, _, _, _ = rescaleFrame(postprocessing_final)
+        cv2.imwrite('test.jpg', test)
+
         # image_pub.publish(bridge.cv2_to_imgmsg(bw, encoding="mono8"))
         rate.sleep()
 
