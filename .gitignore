@@ -1,5 +1,6 @@
-__pycache__/
 .vscode/
-canny.jpg
-final.jpg
-test.jpg
+scripts/__pycache__/
+src/.vscode/
+scripts/canny.jpg
+scripts/final.jpg
+scripts/test.jpg

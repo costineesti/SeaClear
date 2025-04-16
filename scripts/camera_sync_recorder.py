@@ -96,16 +96,16 @@ class CameraSyncRecorder:
         self.csv_file.flush()  # Ensure data is written immediately
         rospy.loginfo(f"seq {seq}, ts {camera_wall_time}")
         # Save to ROS bag
-        self.bag.write('/usb_cam/image_raw', msg, rospy.Time.from_sec(camera_wall_time))
+        self.bag.write('/camera/image_compressed', msg, rospy.Time.from_sec(camera_wall_time))
         self.bag.write('/camera_wall_time', Float64(camera_wall_time), rospy.Time.from_sec(camera_wall_time))
 
         self.frame_count += 1
 
         # Stop recording after 20 frames
-        if self.frame_count >= 40:
-            rospy.loginfo("Reached 20 sequences, shutting down...")
-            self.shutdown()
-            rospy.signal_shutdown("Recording complete")
+        # if self.frame_count >= 40:
+        #     rospy.loginfo("Reached 20 sequences, shutting down...")
+        #     self.shutdown()
+        #     rospy.signal_shutdown("Recording complete")
 
     """ Clean up on shutdown. """
     def shutdown(self):
