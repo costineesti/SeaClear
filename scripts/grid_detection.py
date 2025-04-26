@@ -12,6 +12,7 @@ class GridOverlayNode:
     def __init__(self):
         rospy.init_node('grid_detection_roi', anonymous=True)
         self.bridge = CvBridge()
+        self.debug = True
         self.referencePoint = None # click
         self.generalWidth = None # computed
         self.generalHeight = None # computed
@@ -24,17 +25,21 @@ class GridOverlayNode:
 
     def select_point(self, event, x, y, flags, params):
         if event == cv2.EVENT_LBUTTONDOWN:
-            self.referencePoint = (int(x*2), int(y*2))
+            self.referencePoint = (int(x*2), int(y*2)) # Multiplied by 2 because the reference image is shrinked to half it's original size.
 
     def rescaleFrame(self, frame):
-        roi_x_min, roi_y_min, roi_x_max, roi_y_max = 630, 500, 1380, 1080
+        roi_x_min, roi_y_min, roi_x_max, roi_y_max = 630, 500, 1380, 1080 # Empirically. Image from GoPro.
         height, width = frame.shape[:2]
         x_min, y_min = max(0, roi_x_min), max(0, roi_y_min)
         x_max, y_max = min(width, roi_x_max), min(height, roi_y_max)
         roi = frame[y_min:y_max, x_min:x_max]
-        return roi, x_min, y_min, x_max, y_max
+        return roi
     
     def preprocess(self, frame):
+        """
+        Preprocessing the ROI to get the best possible grid lines.
+        Empyrical approach.
+        """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blur, 50, 150, apertureSize=3)
@@ -44,6 +49,10 @@ class GridOverlayNode:
         return edges
     
     def sort_lsd_lines(self, lsd_lines, angle_threshold=10):
+        """
+        Take the filtered lines and group them into horizontal and vertical.
+        Will futher compute (width, height) based on them.
+        """
         horizontal_lines=[]
         vertical_lines=[]
         for line in lsd_lines:
@@ -61,7 +70,10 @@ class GridOverlayNode:
         return horizontal_lines, vertical_lines
 
     def computeGridLines(self, lsd_lines):
-        min_length = 40 # FILTER NOISE
+        """
+        Take horizontal and vertical lines from the ROI with minimal length and group them.
+        """
+        min_length = 40 # FILTER NOISE. Only get lines long enough!
         filtered_lines = []
         for line in lsd_lines:
             x1, y1, x2, y2 = line[0]
@@ -69,9 +81,12 @@ class GridOverlayNode:
             if length > min_length:
                 filtered_lines.append(line)
         horizontal_lines, vertical_lines = self.sort_lsd_lines(filtered_lines)
-        return horizontal_lines, vertical_lines, filtered_lines
+        return horizontal_lines, vertical_lines
 
     def getGridSquareParameters(self, horizontal, vertical, iterations=10):
+        """
+        Iterate through ROI to get the most accurate (width,height)[px] possible.
+        """
         width_list, height_list = [], []
         for _ in range(iterations):
             _, width = self.simplify_lines(horizontal, 'horizontal')
@@ -100,10 +115,9 @@ class GridOverlayNode:
         average = np.mean(diffs)
         return grouped, average
     
+    """ Not used anymore. Good reference though.
     def draw_angled_rec(self, center, width, height, angle, img):
-        """
         Source: https://richardpricejones.medium.com/drawing-a-rectangle-with-a-angle-using-opencv-c9284eae3380
-        """
         x0, y0 = center[0], center[1]
         _angle = math.radians(angle)  # better to directly convert to radians
         b = math.cos(_angle) * 0.5
@@ -120,6 +134,7 @@ class GridOverlayNode:
         cv2.line(img, pt1, pt2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
         cv2.line(img, pt2, pt3, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
         cv2.line(img, pt3, pt0, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    """
 
     def overlayGrid(self, width, height, referencePoint, img, angle=0):
         """
@@ -127,7 +142,7 @@ class GridOverlayNode:
         228 squares in total. The amount the grid has in real life.
         """
         cols, rows = self.cols, self.rows
-        # Determine grid direction
+        # Determine grid direction (Click only on top left or bottom right!)
         img_h, img_w = img.shape[:2]
         start_from_top = referencePoint[1] < img_h // 2
         start_from_left = referencePoint[0] < img_w // 2
@@ -144,18 +159,15 @@ class GridOverlayNode:
         y_coords = y_sign * np.arange(rows + 1) * height  # move up
         xv, yv = np.meshgrid(x_coords, y_coords)  # full grid
         grid_points = np.stack([xv.flatten(), yv.flatten()], axis=1)  # (N, 2) array
-        # Rotation matrix
         angle_rad = math.radians(angle)
         rotation_matrix = np.array([
             [math.cos(angle_rad), -math.sin(angle_rad)],
             [math.sin(angle_rad),  math.cos(angle_rad)]
         ])
-        # Apply rotation
+        # Apply rotation and translation
         rotated_points = grid_points @ rotation_matrix.T  # (N, 2)
-        # Apply translation
         rotated_points[:, 0] += referencePoint[0] # X
         rotated_points[:, 1] += referencePoint[1] # Y
-        # Round and convert to integer
         transformed_points = np.round(rotated_points).astype(int) # cv2.line takes int as argument.
         # Draw horizontal lines
         for r in range(rows + 1):
@@ -191,7 +203,7 @@ class GridOverlayNode:
         cv2.setMouseCallback("Select Reference Point", self.select_point)
 
         while self.referencePoint is None:
-            display_frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
+            display_frame = cv2.resize(frame, None, fx=0.5, fy=0.5) # Half size for better visualization.
             cv2.imshow("Select Reference Point", display_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -210,32 +222,32 @@ class GridOverlayNode:
             rospy.logerr(f"Cannot reopen video file at {self.video_path}")
             return
 
-        while not rospy.is_shutdown() and cap.isOpened():
+        while not rospy.is_shutdown() and cap.isOpened(): # Main loop
             ret, frame = cap.read()
             if not ret:
                 rospy.loginfo("End of video file reached")
                 break
-
                                                             # PREPROCESSING #
-            roi_frame, _, _, _, _ = self.rescaleFrame(frame)
+            roi_frame = self.rescaleFrame(frame)
             edges = self.preprocess(roi_frame)
-            cv2.imwrite('canny.jpg', edges)
-
                                                             # POSTPROCESSING #
             lsd = cv2.createLineSegmentDetector(0) # Source: https://costinchitic.co/notes/Line-Segment-Detector
             # Use cv2.ximgproc.createFastLineDetector() for OpenCV newer than 4.1.0!
             lsd_lines = lsd.detect(edges)[0] # Mainly used to get generalWidth and generalHeight. Reliable method.
-            horizontal_lines, vertical_lines, _ = self.computeGridLines(lsd_lines)
+            horizontal_lines, vertical_lines = self.computeGridLines(lsd_lines)
 
             if self.GETPARAMS:
                 self.generalWidth, self.generalHeight = self.getGridSquareParameters(horizontal_lines, vertical_lines)
                 rospy.loginfo(f"General Grid (width, height): {int(self.generalWidth), int(self.generalHeight)}")
                 postprocessing_image = np.copy(frame)
-                self.overlayGrid(self.generalHeight, self.generalWidth, self.referencePoint, postprocessing_image, angle=0.2)
-                cv2.imwrite('final.jpg', postprocessing_image)
-                test, _, _, _, _ = self.rescaleFrame(postprocessing_image)
-                cv2.imwrite('test.jpg', test)
+                self.overlayGrid(self.generalHeight, self.generalWidth, self.referencePoint, postprocessing_image, angle=-2)
+                test = self.rescaleFrame(postprocessing_image)
                 self.GETPARAMS = False
+
+            if self.debug:
+                cv2.imwrite('canny.jpg', edges)
+                cv2.imwrite('final.jpg', postprocessing_image)
+                cv2.imwrite('test.jpg', test)
 
             self.rate.sleep()
 
