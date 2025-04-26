@@ -6,6 +6,7 @@ import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 import os
+import math
 
 referencePoint = None
 # Mouse callback function
@@ -127,12 +128,35 @@ def sort_lsd_lines(lsd_lines, angle_threshold=10):
             vertical_lines.append(line)
     return horizontal_lines, vertical_lines
 
+"""
+Source: https://richardpricejones.medium.com/drawing-a-rectangle-with-a-angle-using-opencv-c9284eae3380
+"""
+def draw_angled_rec(center, width, height, angle, img):
+    x0, y0 = center[0], center[1]
+    _angle = math.radians(angle)  # better to directly convert to radians
+
+    b = math.cos(_angle) * 0.5
+    a = math.sin(_angle) * 0.5
+
+    pt0 = (x0 - a * height - b * width, y0 + b * height - a * width)
+    pt1 = (x0 + a * height - b * width, y0 - b * height - a * width)
+    pt2 = (2 * x0 - pt0[0], 2 * y0 - pt0[1])
+    pt3 = (2 * x0 - pt1[0], 2 * y0 - pt1[1])
+
+    pt0 = (int(round(pt0[0])), int(round(pt0[1])))
+    pt1 = (int(round(pt1[0])), int(round(pt1[1])))
+    pt2 = (int(round(pt2[0])), int(round(pt2[1])))
+    pt3 = (int(round(pt3[0])), int(round(pt3[1])))
+    cv2.line(img, pt0, pt1, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(img, pt1, pt2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(img, pt2, pt3, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
+    cv2.line(img, pt3, pt0, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
 
 """
 Overlay a grid of 12 x 19 on an image starting with the reference point.
 228 squares in total. The amount the grid has in real life.
 """
-def overlayGrid(width, length, referencePoint, img, cols = 12, rows = 19):
+def overlayGrid(width, height, referencePoint, img, cols = 12, rows = 19, angle=0):
     
     for i in range(228):
         row = i // cols
@@ -140,13 +164,19 @@ def overlayGrid(width, length, referencePoint, img, cols = 12, rows = 19):
 
         top_left = (
             int(referencePoint[0] - (cols - col) * width),
-            int(referencePoint[1] - (rows - row) * length))
-        bottom_right = (int(top_left[0] + width), 
-                        int(top_left[1] + length))
+            int(referencePoint[1] - (rows - row) * height))
+        bottom_right = (
+            int(top_left[0] + width), 
+            int(top_left[1] + height))
+        # cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 1)
+        center = (
+            int((top_left[0] + bottom_right[0]) / 2),
+            int((top_left[1] + bottom_right[1]) / 2))
 
-        cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 1)
-
+        draw_angled_rec(center, width, height, angle, img)
+    rospy.loginfo(f"Overlayed {cols*rows} squares with angle of {angle}")
     return img
+
 
                                                      # MAIN #
 
@@ -227,14 +257,15 @@ def main():
         if GETPARAMS:
             global generalWidth, generalLength
             generalWidth, generalLength = getGridSquareParameters(horizontal_lines, vertical_lines)
+            rospy.loginfo(f"General Grid (width, height): {int(generalWidth),int(generalLength)}")
+
+            postprocessing_image = np.copy(frame)
+            postprocessing_final = overlayGrid(generalLength, generalWidth, referencePoint, postprocessing_image, angle=0)
+            cv2.imwrite('final.jpg', postprocessing_final)
+            test, _, _, _, _ = rescaleFrame(postprocessing_final)
+            cv2.imwrite('test.jpg', test)
+
             GETPARAMS = False
-
-        postprocessing_image = np.copy(frame)
-        postprocessing_final = overlayGrid(generalLength, generalWidth, referencePoint, postprocessing_image)
-        cv2.imwrite('final.jpg', postprocessing_final)
-
-        test, _, _, _, _ = rescaleFrame(postprocessing_final)
-        cv2.imwrite('test.jpg', test)
 
         # image_pub.publish(bridge.cv2_to_imgmsg(bw, encoding="mono8"))
         rate.sleep()
