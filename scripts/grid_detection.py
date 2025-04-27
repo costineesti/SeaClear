@@ -19,6 +19,7 @@ class GridOverlayNode:
         self.GETPARAMS = True # To only get (width,height) once!
         self.cols = 12 # SET from real life
         self.rows = 19 # SET from real life
+        self.angle = 0 # Grid Rotation
         self.video_path = os.path.expanduser('~/Videos/GX010179.MP4')
         self.image_pub = rospy.Publisher('/grid_detection/image_raw', Image, queue_size=10)
         self.rate = rospy.Rate(10)  # 10 Hz
@@ -155,10 +156,10 @@ class GridOverlayNode:
         else:
             y_sign = -1  # move up
         # Generate local grid points
-        x_coords = x_sign * np.arange(cols + 1) * width  # move left
-        y_coords = y_sign * np.arange(rows + 1) * height  # move up
+        x_coords = x_sign * np.arange(cols + 1) * width
+        y_coords = y_sign * np.arange(rows + 1) * height
         xv, yv = np.meshgrid(x_coords, y_coords)  # full grid
-        grid_points = np.stack([xv.flatten(), yv.flatten()], axis=1)  # (N, 2) array
+        grid_points = np.stack([xv.flatten(), yv.flatten()], axis=1)  # (N, 2)
         angle_rad = math.radians(angle)
         rotation_matrix = np.array([
             [math.cos(angle_rad), -math.sin(angle_rad)],
@@ -185,43 +186,65 @@ class GridOverlayNode:
                 pt1 = tuple(transformed_points[idx1])
                 pt2 = tuple(transformed_points[idx2])
                 cv2.line(img, pt1, pt2, (0, 255, 0), thickness=1, lineType=cv2.LINE_AA)
-        rospy.loginfo(f"Overlayed {cols*rows} squares with angle {angle}")
 
-    def run(self):
-        """RUN METHOD"""
+    def choose_gridAngle(self, frame):
+        """
+        Allow the user to adjust the grid angle on a fixed frame before starting real processing.
+        """
+        while True:
+            display_frame = np.copy(frame)
+            self.overlayGrid(self.generalHeight, self.generalWidth, self.referencePoint, display_frame, angle=self.angle)
+            resized_display = cv2.resize(display_frame, None, fx=0.5, fy=0.5)
+            cv2.imshow("Adjust Grid Angle (Press A/D to rotate, Enter to confirm)", resized_display)
+            key = cv2.waitKey(50) & 0xFF
+            if key == ord('a') or key == 81:  # 'a' key or Left Arrow.
+                self.angle -= 0.1
+            elif key == ord('d') or key == 83:  # 'd' key or Right Arrow.
+                self.angle += 0.1
+            elif key == 13:  # Enter key
+                rospy.loginfo(f"Final grid angle selected: {self.angle} degrees.")
+                break
+            elif key == ord('q'):  # Emergency exit
+                rospy.logwarn("Canceled during grid adjustment.")
+                return
+        cv2.destroyAllWindows()
+        return display_frame
+    
+    def choose_referencePoint(self):
+        """
+        Allow the user to choose a global reference point of the virtualized grid.
+        """
         cap = cv2.VideoCapture(self.video_path)
         if not cap.isOpened():
             rospy.logerr(f"Cannot open video file at {self.video_path}")
             return
-
         ret, frame = cap.read()
         if not ret:
             rospy.logerr("Failed to read the first frame of the video.")
             return
-
         cv2.namedWindow("Select Reference Point")
         cv2.setMouseCallback("Select Reference Point", self.select_point)
-
         while self.referencePoint is None:
             display_frame = cv2.resize(frame, None, fx=0.5, fy=0.5) # Half size for better visualization.
             cv2.imshow("Select Reference Point", display_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-
         cv2.destroyAllWindows()
-
         if self.referencePoint is None:
             rospy.logerr("No reference point selected.")
             return
-
         rospy.loginfo(f"Using reference point: {self.referencePoint}")
-
         cap.release()
+
+    def run(self):
+        """RUN METHOD"""
+        self.choose_referencePoint()
         cap = cv2.VideoCapture(self.video_path)
+
         if not cap.isOpened():
             rospy.logerr(f"Cannot reopen video file at {self.video_path}")
             return
-
+        
         while not rospy.is_shutdown() and cap.isOpened(): # Main loop
             ret, frame = cap.read()
             if not ret:
@@ -236,11 +259,10 @@ class GridOverlayNode:
             lsd_lines = lsd.detect(edges)[0] # Mainly used to get generalWidth and generalHeight. Reliable method.
             horizontal_lines, vertical_lines = self.computeGridLines(lsd_lines)
 
-            if self.GETPARAMS:
+            if self.GETPARAMS: # Only execute once
                 self.generalWidth, self.generalHeight = self.getGridSquareParameters(horizontal_lines, vertical_lines)
                 rospy.loginfo(f"General Grid (width, height): {int(self.generalWidth), int(self.generalHeight)}")
-                postprocessing_image = np.copy(frame)
-                self.overlayGrid(self.generalHeight, self.generalWidth, self.referencePoint, postprocessing_image, angle=-2)
+                postprocessing_image = self.choose_gridAngle(frame)
                 test = self.rescaleFrame(postprocessing_image)
                 self.GETPARAMS = False
 
@@ -248,7 +270,7 @@ class GridOverlayNode:
                 cv2.imwrite('canny.jpg', edges)
                 cv2.imwrite('final.jpg', postprocessing_image)
                 cv2.imwrite('test.jpg', test)
-
+                
             self.rate.sleep()
 
         cap.release()
