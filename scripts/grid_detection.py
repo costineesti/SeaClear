@@ -20,7 +20,7 @@ class GridOverlayNode:
         self.cols = 12 # SET from real life
         self.rows = 19 # SET from real life
         self.angle = 0 # Grid Rotation
-        self.video_path = os.path.expanduser('~/Videos/GX010179.MP4')
+        self.video_path = os.path.expanduser('~/Desktop/GX010182.MP4')
         self.image_pub = rospy.Publisher('/grid_detection/image_raw', Image, queue_size=10)
         self.rate = rospy.Rate(10)  # 10 Hz
 
@@ -263,13 +263,16 @@ class GridOverlayNode:
                 self.generalWidth, self.generalHeight = self.getGridSquareParameters(horizontal_lines, vertical_lines)
                 rospy.loginfo(f"General Grid (width, height): {int(self.generalWidth), int(self.generalHeight)}")
                 postprocessing_image = self.choose_gridAngle(frame)
-                test = self.rescaleFrame(postprocessing_image)
                 self.GETPARAMS = False
 
             if self.debug:
-                cv2.imwrite('canny.jpg', edges)
-                cv2.imwrite('final.jpg', postprocessing_image)
-                cv2.imwrite('test.jpg', test)
+                display_frame = np.copy(frame)
+                self.overlayGrid(self.generalHeight, 
+                                 self.generalWidth, 
+                                 self.referencePoint, 
+                                 display_frame, 
+                                 angle=self.angle)
+                cv2.imwrite('final.jpg', display_frame)
                 
             self.rate.sleep()
 
