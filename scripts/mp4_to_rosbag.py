@@ -14,10 +14,10 @@ bag_path = os.path.expanduser('~/Desktop/GoPro.bag')
 
 def get_video_metadata(video_path):
     output = subprocess.check_output(
-                                    ["../gpmf-parser/demo/gpmfdemo", video_path],
-                                    stderr=subprocess.STDOUT
-                                    ).decode("utf-8", errors="replace")
-
+        ["../gpmf-parser/demo/gpmfdemo", video_path],
+        stderr=subprocess.STDOUT
+    ).decode("utf-8", errors="replace")
+    print(output)
     fps_match = re.search(r"VIDEO FRAMERATE:\s+([\d.]+) with (\d+) frames", output)
     if fps_match:
         fps = float(fps_match.group(1))
@@ -26,52 +26,48 @@ def get_video_metadata(video_path):
     else:
         raise RuntimeError("Couldn't parse FPS and frame count from gpmfdemo output.")
 
-def get_stmp_gpsu_pairs(video_path):
+def get_creation_time_unix(video_path):
+    output = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time",
+         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+        stderr=subprocess.STDOUT
+    ).decode("utf-8", errors="replace").strip()
+    
+    creation_dt = datetime.strptime(output, "%Y-%m-%dT%H:%M:%S.%fZ")
+    return creation_dt.timestamp()
 
+def get_stmp_list(video_path):
     output = subprocess.check_output(
         ["../gpmf-parser/demo/extract_utc", video_path],
         stderr=subprocess.STDOUT
     ).decode("utf-8", errors="replace")
-
+    print(output)
     stmp = re.findall(r"STMP microsecond timestamp: ([\d.]+) s", output)
-    gpsu = re.findall(r"GPSU UTC Timedata:\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)", output)
+    return [float(s) for s in stmp]
 
-    if len(stmp) != len(gpsu):
-        raise RuntimeError("Mismatch between STMP and GPSU entries")
-
-    stmp_gpsu = []
-    for s, g in zip(stmp, gpsu):
-        t = float(s)
-        dt = datetime.strptime(g, "%Y-%m-%d %H:%M:%S.%f")
-        unix = dt.timestamp()
-        stmp_gpsu.append((t, unix))
-    
-    return stmp_gpsu
-
-def interpolate_frame_timestamps(frame_count, fps, stmp_gpsu):
+def interpolate_frame_timestamps(frame_count, fps, creation_unix, stmp_list):
     timestamps = [0.0] * frame_count
     frames_per_segment = int(round(fps))
 
-    for i in range(len(stmp_gpsu) - 1):
-        stmp0, gpsu0 = stmp_gpsu[i]
-        stmp1, gpsu1 = stmp_gpsu[i + 1]
+    for i in range(len(stmp_list) - 1):
+        stmp0 = stmp_list[i]
+        stmp1 = stmp_list[i + 1]
         idx0 = i * frames_per_segment
         idx1 = min((i + 1) * frames_per_segment, frame_count)
 
         for f in range(idx0, idx1):
             alpha = (f - idx0) / (idx1 - idx0)
             interpolated = stmp0 + alpha * (stmp1 - stmp0)
-            timestamps[f] = gpsu0 + (interpolated - stmp0)
+            timestamps[f] = creation_unix + interpolated
 
-    # Handle any leftover frames
-    last = (len(stmp_gpsu) - 1) * frames_per_segment
+    # Handle tail
+    last = (len(stmp_list) - 1) * frames_per_segment
     if last < frame_count:
         dt = 1.0 / fps
         for f in range(last, frame_count):
             timestamps[f] = timestamps[last - 1] + (f - last + 1) * dt
 
     return timestamps
-    
 
 def video_to_rosbag(video_path, bag_path, frame_count, timestamps):
     cap = cv2.VideoCapture(video_path)
@@ -91,8 +87,10 @@ def video_to_rosbag(video_path, bag_path, frame_count, timestamps):
         img_msg = bridge.cv2_to_imgmsg(frame, encoding="bgr8")
         img_msg.header = header
 
-        bag.write('/gopro/image_raw', img_msg, t=timestamp)
-        # bag.write('/camera_wall_time', Float64(timestamp.to_sec()), timestamp)
+        bag.write('/gopro/image_raw', img_msg, t=timestamp) # Image
+        wall_time_msg = Float64()
+        wall_time_msg.data = timestamps[i]
+        bag.write('/gopro/wall_time', wall_time_msg, t=timestamp) # wall time for sync
 
     cap.release()
     bag.close()
@@ -100,6 +98,7 @@ def video_to_rosbag(video_path, bag_path, frame_count, timestamps):
 
 if __name__ == "__main__":
     fps, frame_count = get_video_metadata(video_path)
-    stmp_gpsu = get_stmp_gpsu_pairs(video_path)
-    timestamps = interpolate_frame_timestamps(frame_count, fps, stmp_gpsu)
+    creation_unix = get_creation_time_unix(video_path)
+    stmp_list = get_stmp_list(video_path)
+    timestamps = interpolate_frame_timestamps(frame_count, fps, creation_unix, stmp_list)
     video_to_rosbag(video_path, bag_path, frame_count, timestamps)
