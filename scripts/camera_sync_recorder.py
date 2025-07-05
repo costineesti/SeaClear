@@ -18,7 +18,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Float64
 import csv
 
-rosbag_path = os.path.expanduser("~/camera_sync_uptime.bag")
+rosbag_path = os.path.expanduser("~/usbcamera_23Jun.bag")
 csv_path = "csv_timestamps"
 
 class CameraSyncRecorder:
@@ -28,7 +28,7 @@ class CameraSyncRecorder:
         # Class parameters
         self.offset = time.time() - time.monotonic() # Computed once at start.
         self.bag = rosbag.Bag(rosbag_path, 'w')
-        self.video_device = "/dev/video5"
+        self.video_device = "/dev/video1"
         # Open CSV file inside the class
         self.csv_file = open(csv_path, "w", newline="")
         self.csv_writer = csv.writer(self.csv_file)

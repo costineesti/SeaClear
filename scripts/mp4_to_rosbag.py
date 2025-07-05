@@ -5,13 +5,14 @@ from std_msgs.msg import Header, Float64
 import cv2
 import time
 import os
+os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = "1000000"
 import re, subprocess
 from datetime import datetime
 import numpy as np
 
 bridge = CvBridge()
-video_path = os.path.expanduser('~/Desktop/GX010182.MP4')
-bag_path = os.path.expanduser('~/Desktop/GoPro.bag')
+video_path = os.path.expanduser('~/Desktop/23Jun_GoPro.MP4')
+bag_path = os.path.expanduser('~/Desktop/23Jun_GoPro.bag')
 
 def get_video_metadata(video_path):
     # Get duration and frame count precisely
@@ -28,17 +29,6 @@ def get_video_metadata(video_path):
     
     return avg_fps, frame_count, duration
 
-def get_creation_time_unix(video_path):
-    """Get video creation time as UNIX timestamp"""
-    output = subprocess.check_output(
-        ["ffprobe", "-v", "error", "-show_entries", "format_tags=creation_time",
-         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-        stderr=subprocess.STDOUT
-    ).decode("utf-8", errors="replace").strip()
-    
-    creation_dt = datetime.strptime(output, "%Y-%m-%dT%H:%M:%S.%fZ")
-    return creation_dt.timestamp()
-
 def parse_stmp_data(video_path):
     """Parse STMP timestamps from extract_utc output"""
     output = subprocess.check_output(
@@ -49,12 +39,15 @@ def parse_stmp_data(video_path):
     # Extract STMP BE (big-endian) timestamps - these are more reliable
     stmp_matches = re.findall(r"STMP\[0\] BE: ([\d.]+) s", output)
     stmp_times = [float(s) for s in stmp_matches]
-    
-    # Also extract timeline information for better accuracy
+    gpsu_matches = re.findall(r"GPSU Local Time: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)", output)
+    gpsu_times = [
+        datetime.strptime(t, "%Y-%m-%d %H:%M:%S.%f").timestamp()
+        for t in gpsu_matches
+    ]
     timeline_matches = re.findall(r"Timeline Start: ([\d.]+) s \| End: ([\d.]+) s", output)
     timeline_segments = [(float(start), float(end)) for start, end in timeline_matches]
     
-    return stmp_times, timeline_segments
+    return stmp_times, gpsu_times, timeline_segments
 
 def create_precise_timestamps(frame_count, avg_fps, creation_unix, stmp_times, timeline_segments):
     """Create precise timestamps using STMP data and timeline information"""
@@ -185,13 +178,13 @@ if __name__ == "__main__":
     print("Starting MP4 to ROS bag conversion with precise timing...")
     avg_fps, frame_count, duration = get_video_metadata(video_path)
     print(f"Video: {frame_count} frames, {duration:.3f}s, {avg_fps:.3f} fps")
-    creation_unix = get_creation_time_unix(video_path)
-    creation_readable = datetime.fromtimestamp(creation_unix)
-    print(f"Creation time: {creation_readable} ({creation_unix})")
-    stmp_times, timeline_segments = parse_stmp_data(video_path)
-    print(f"Found {len(stmp_times)} STMP timestamps and {len(timeline_segments)} timeline segments")
-    timestamps = create_precise_timestamps(frame_count, avg_fps, creation_unix, 
-                                         stmp_times, timeline_segments)
-    validate_timestamps(timestamps, avg_fps)
-    video_to_rosbag_with_precise_timing(video_path, bag_path, frame_count, timestamps)
-    print("Conversion complete!")
+    # stmp_times, gpsu_times, timeline_segments = parse_stmp_data(video_path)
+    # print(f"Found {len(stmp_times)} STMP timestamps, {len(gpsu_times)} GPSU timestamps, and {len(timeline_segments)} timeline segments")
+    # creation_unix = gpsu_times[0]
+    # creation_readable = datetime.fromtimestamp(creation_unix)
+    # print(f"Creation time: {creation_readable} ({creation_unix})")
+    # timestamps = create_precise_timestamps(frame_count, avg_fps, creation_unix, 
+    #                                      stmp_times, timeline_segments)
+    # validate_timestamps(timestamps, avg_fps)
+    # video_to_rosbag_with_precise_timing(video_path, bag_path, frame_count, timestamps)
+    # print("Conversion complete!")
