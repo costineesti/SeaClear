@@ -30,16 +30,23 @@ class Task:
             return
 
         # Camera calibration parameters (as in your original code)
-        camera_matrix = np.array([[2481.80467, 0.0, 1891.149796,],
-                                [0.0, 2484.001002, 1079.160663],
-                                [0.0, 0.0, 1.0]
-                                ])
-        dist = np.array([-0.274309, 0.075813, -0.000209, -0.000607, 0.0])
+        w, h = msg.width, msg.height
+        self.scale_x = w / 3840
+        self.scale_y = h / 2160
+        fx_scaled = 2481.80467 * self.scale_x
+        fy_scaled = 2484.001002 * self.scale_y
+        cx_scaled = 1891.149796 * self.scale_x
+        cy_scaled = 1079.160663 * self.scale_y
 
-        w, h = 3840, 2160
-        newcammtx, roi = cv2.getOptimalNewCameraMatrix(camera_matrix, dist, (w, h), 1, (w, h))
+        camera_matrix = np.array([
+            [fx_scaled, 0, cx_scaled],
+            [0, fy_scaled, cy_scaled],
+            [0, 0, 1]
+        ])
+        dist = np.array([-0.274309, 0.075813, -0.000209, -0.000607, 0.0])
+        # newcammtx, roi = cv2.getOptimalNewCameraMatrix(camera_matrix, dist, (w, h), 1, (w, h))
         # undistort = cv2.undistort(image, camera_matrix, dist, None, newcammtx)
-        #dist = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+        # dist = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
         # For now we use the original image.
         frame = image
         # frame = undistort
@@ -52,11 +59,23 @@ class Task:
         aruco_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_CONTOUR
 
         # Detect markers in the image.
-        corners, ids, rejected = cv2.aruco.detectMarkers(frame, aruco_dict, parameters=aruco_params)
+        try:
+            # For OpenCV 4.5.0+ (new API)
+            detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
+            corners, ids, rejected = detector.detectMarkers(frame)
+        except AttributeError:
+            try:
+                # For older OpenCV versions (legacy API)
+                corners, ids, rejected = cv2.aruco.detectMarkers(
+                    frame, aruco_dict, parameters=aruco_params)
+            except Exception as e:
+                rospy.logerr(f"ArUco detection failed: {e}")
+                corners, ids, rejected = [], None, []
 
         if ids is not None and len(ids) > 0:
             # Draw the detected markers on the image.
             cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            rospy.loginfo(f"Detected ArUco markers with IDs: {ids.flatten()}")
 
             # For simplicity, we work with the first detected marker.
             marker_corners = corners[0].reshape((4, 2))
@@ -67,8 +86,22 @@ class Task:
             cv2.putText(frame, "Marker Center", (cX - 15, cY - 25),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
             
-            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist)
-            # rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, newcammtx, dist)
+            try:
+                # For OpenCV versions with estimatePoseSingleMarkers
+                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist)
+            except AttributeError:
+                # For newer OpenCV versions where estimatePoseSingleMarkers is not available
+                rvecs = []
+                tvecs = []
+                objPoints = np.array([[-marker_length/2, marker_length/2, 0],
+                                    [marker_length/2, marker_length/2, 0],
+                                    [marker_length/2, -marker_length/2, 0],
+                                    [-marker_length/2, -marker_length/2, 0]])
+                
+                for corner in corners:
+                    retval, rvec, tvec = cv2.solvePnP(objPoints, corner, camera_matrix, dist)
+                    rvecs.append(rvec)
+                    tvecs.append(np.array([tvec]).reshape(1,3))
 
             # Use the first marker's pose.
             rvec = rvecs[0]
@@ -132,7 +165,7 @@ class Task:
 
 
 # Publishers
-pub = rospy.Publisher('colordetection', Image, queue_size=10)
+pub = rospy.Publisher('arucodetection', Image, queue_size=10)
 world = rospy.Publisher('/BlueRov2/plane', Odometry, queue_size=10)
 real = rospy.Publisher('/BlueRov2/real_coord', Odometry, queue_size=10)
 
@@ -141,6 +174,6 @@ if __name__ == '__main__':
     task = Task()
 
     # Subscribe to the image and depth topics.
-    rospy.Subscriber('/usb_cam/image_raw', Image, task.image_callback)
+    rospy.Subscriber('/camera/image_compressed', Image, task.image_callback)
 
     rospy.spin()

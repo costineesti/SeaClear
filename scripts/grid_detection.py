@@ -18,9 +18,9 @@ class GridOverlayNode:
         self.generalHeight = None # computed
         self.GETPARAMS = True # To only get (width,height) once!
         self.cols = 12 # SET from real life
-        self.rows = 19 # SET from real life
+        self.rows = 29 # SET from real life
         self.angle = 0 # Grid Rotation
-        self.video_path = os.path.expanduser('~/Desktop/GX010182.MP4')
+        self.video_path = os.path.expanduser('~/Documents/SeaClear/June_BlueROV_Experiments/23Jun_GoPro.MP4')
         self.image_pub = rospy.Publisher('/grid_detection/image_raw', Image, queue_size=10)
         self.rate = rospy.Rate(10)  # 10 Hz
 
@@ -29,7 +29,7 @@ class GridOverlayNode:
             self.referencePoint = (int(x*2), int(y*2)) # Multiplied by 2 because the reference image is shrinked to half it's original size.
 
     def rescaleFrame(self, frame):
-        roi_x_min, roi_y_min, roi_x_max, roi_y_max = 630, 500, 1380, 1080 # Empirically. Image from GoPro.
+        roi_x_min, roi_y_min, roi_x_max, roi_y_max = 630, 500, 1180, 900 # Empirically. Image from GoPro. IF GRID LOOKS WEIRD, CHANGE THESE VALUES!
         height, width = frame.shape[:2]
         x_min, y_min = max(0, roi_x_min), max(0, roi_y_min)
         x_max, y_max = min(width, roi_x_max), min(height, roi_y_max)
@@ -139,12 +139,12 @@ class GridOverlayNode:
 
     def overlayGrid(self, width, height, referencePoint, img, angle=0):
         """
-        Overlay a grid of 12 x 19 on an image starting with the reference point.
+        Overlay a grid of 12 x 29 on an image starting with the reference point.
         228 squares in total. The amount the grid has in real life.
         """
         cols, rows = self.cols, self.rows
         # Determine grid direction (Click only on top left or bottom right!)
-        img_h, img_w = img.shape[:2]
+        img_w, img_h = img.shape[:2]
         start_from_top = referencePoint[1] < img_h // 2
         start_from_left = referencePoint[0] < img_w // 2
         if start_from_left:
@@ -252,6 +252,7 @@ class GridOverlayNode:
                 break
                                                             # PREPROCESSING #
             roi_frame = self.rescaleFrame(frame)
+            cv2.imshow("ROI Frame", roi_frame) # Show the ROI frame for debugging
             edges = self.preprocess(roi_frame)
                                                             # POSTPROCESSING #
             lsd = cv2.createLineSegmentDetector(0) # Source: https://costinchitic.co/notes/Line-Segment-Detector

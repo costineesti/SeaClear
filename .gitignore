@@ -1,5 +1,7 @@
 .vscode/
 scripts/__pycache__/
+scripts/myenv/
+scripts/venv/
 src/.vscode/
 scripts/canny.jpg
 scripts/final.jpg
