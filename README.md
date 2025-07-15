@@ -8,5 +8,10 @@ My contribution so far in coding:
 * src/
 * include/
 * scripts/aruco.py
-* scripts/grid_detection.py (work in progress)
+* scripts/grid_detection.py
 * scripts/camera_sync_recorder.py
+* scripts/dualtrajectoryplotter.py
+* scripts/rov_prediction_cnn.py
+* scripts/color_gopro
+* scripts/color_usbcamera
+* *.sh
