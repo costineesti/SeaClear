@@ -10,6 +10,8 @@ My contribution so far in coding:
 * scripts/aruco.py
 * scripts/grid_detection.py
 * scripts/camera_sync_recorder.py
+* scripts/mp4_to_rosbag.py
+* scripts/extract_frames.py
 * scripts/dualtrajectoryplotter.py
 * scripts/rov_prediction_cnn.py
 * scripts/color_gopro
