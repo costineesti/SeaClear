@@ -123,7 +123,6 @@ class RobotDetectionTask:
             img_msg = self.bridge.cv2_to_imgmsg(image, "bgr8")
             img_msg.header = header
             
-            # Publish to appropriate topic based on camera type
             if camera_type == "gopro":
                 self.image_pub_gopro.publish(img_msg)
             elif camera_type == "usbcamera":

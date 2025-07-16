@@ -27,3 +27,6 @@ for topic, msg, t in bag.read_messages(topics=[image_topic]):
 
 bag.close()
 print(f"Saved {saved} images in {output_dir}")
+
+"""Script to extract frames from a ROS bag file containing images from a USB camera.
+I used it to create a dataset of images for training a neural network."""

@@ -132,7 +132,7 @@ class DualTrajectoryPlotter:
                     self.ax.plot(usb_x, usb_y, usb_z, 'b-', alpha=0.8, linewidth=2, label='USB Camera (Estimation)')
                     self.ax.scatter(usb_x, usb_y, usb_z, c='blue', s=30, alpha=0.6)
                     
-                    # Highlight most recent point - FIX: Changed usb_positions to usbcamera_positions
+                    # Highlight most recent point
                     latest = self.usbcamera_positions[-1]
                     self.ax.scatter([latest[0]], [latest[1]], [latest[2]], 
                                     c='cyan', s=100, marker='*', edgecolors='black', linewidth=2)
@@ -449,9 +449,7 @@ class DualTrajectoryComputer:
             # Valid detection, update last point
             last_point_usbcamera = odom
         
-        # Publish the odometry message
-        estimation.publish(odom)  # You'll need to make sure this publisher is available
-
+        estimation.publish(odom)
         # Add position to plotter
         self.plotter.add_usbcamera_position(self.x_world_usbcamera, self.y_world_usbcamera, self.z_world_usbcamera, timestamp)
 

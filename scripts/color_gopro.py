@@ -15,6 +15,7 @@ import time
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend. Otherwise error
 from mpl_toolkits.mplot3d import Axes3D # for 3D plotting
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 seq = 1
 last_point = Odometry()
@@ -63,8 +64,6 @@ class PlotVisualizer:
                         
                 # Save plot as image
                 self.fig.canvas.draw()
-
-                from matplotlib.backends.backend_agg import FigureCanvasAgg
                 canvas = FigureCanvasAgg(self.fig)
                 canvas.draw()
                 
@@ -128,7 +127,6 @@ class PlotVisualizer:
                 self.ax.set_ylim(center_y - max_range, center_y + max_range)
                 self.ax.set_zlim(center_z - max_range, center_z + max_range)
             
-            # Add grid
             self.ax.grid(True, alpha=0.3)
             
         else:
@@ -189,7 +187,6 @@ class Task:
         self.plotter = PlotVisualizer(max_points=100000, plot_3d=plot_3d)
         self.plotter.start_plotting()
 
-        # Print current plotting mode
         plot_mode = "3D" if plot_3d else "2D"
         print(f"Initialized with {plot_mode} plotting mode")
 
