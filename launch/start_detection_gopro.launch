@@ -1,12 +1,11 @@
 <launch>
+    <param name="use_sim_time" value="true"/>
     
-    <!-- Play rosbag files with clock synchronization -->
     <node name="rosbag_player" pkg="rosbag" type="play" 
       args="$(env HOME)/Downloads/Data_2025-06-23-13-54-24.bag $(env HOME)/Documents/SeaClear/rosbag/usbcamera_23Jun.bag
       $(env HOME)/Documents/SeaClear/rosbag/GoPro_23Jun.bag --loop --clock"
       output="screen" />
     
-    <!-- Run tank detection node -->
     <node name="colordetection" pkg="rov_tf_tree" type="rov_prediction_cnn.py" 
           output="screen" />
 </launch>
