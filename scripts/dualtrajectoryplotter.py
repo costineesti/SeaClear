@@ -27,15 +27,17 @@ class DualTrajectoryComputer:
         self.camera_matrix_gopro = np.array(((927.091270, 0.000000, 957.570804), 
                                        (0.000000, 919.995427, 533.540912), 
                                        (0.000000, 0.000000, 1.000000)))
-        self.dist_gopro = np.array((0.05, 0.07, -0.11, 0.05, 0.000000))
+        self.dist_gopro = np.array((0.05, 0.07, -0.11, 0.05, 0.000000)) # Need to be fact checked
         self.camera_center_gopro = None
         self.camera_orientation_gopro = None
         self.GET_PARAMS_GOPRO = True
 
                                                 # === CONSTANTS USBCAMERA ===
         self.timestamp_usbcamera = None
-        self.camera_matrix_usbcamera = None
-        self.dist_usbcamera = np.array([-0.274309, 0.075813, -0.000209, -0.000607, 0.0])
+        self.camera_matrix_usbcamera = np.array(((1248.7537961358316, 0.000000, 972.91303286185735),
+                                                 (0.000000, 1244.8793353282827, 546.12095519076013),
+                                                 (0.000000, 0.000000, 1.000000)))
+        self.dist_usbcamera = np.array([-0.29141956539556901, 0.09518440179444243, -0.0022242325091741334, -1.5895164604828018e-05, 0.0])
         self.camera_center_usbcamera = None
         self.camera_orientation_usbcamera = None
         self.GET_PARAMS_USBCAMERA = True
@@ -114,7 +116,7 @@ class DualTrajectoryComputer:
         transform.transform.rotation.w = quat[3]
         
         self.static_tf_broadcaster.sendTransform(transform)
-        rospy.loginfo(f"Set up transform chain: {camera_frame} -> aruco_marker")
+        rospy.loginfo(f"Set up transform chain: aruco_marker -> {camera_frame}")
 
     def transform_point_to_world(self, point_array, source_frame, timestamp):
         """
@@ -129,11 +131,11 @@ class DualTrajectoryComputer:
             point_stamped.point.z = point_array[2]
 
             # Check if transform is available
-            # if not self.tf_buffer.can_transform(
-            #     "aruco_marker", source_frame, rospy.Time(0), rospy.Duration(1.0)
-            # ):
-            #     rospy.logwarn(f"Transform from {source_frame} to aruco_marker not available")
-            #     return point_array
+            if not self.tf_buffer.can_transform(
+                "aruco_marker", source_frame, timestamp, rospy.Duration(1.0)
+            ):
+                rospy.logwarn(f"Transform from {source_frame} to aruco_marker not available")
+                return point_array
 
             transformed_point = self.tf_buffer.transform(
                 point_stamped, "aruco_marker"
@@ -184,27 +186,12 @@ class DualTrajectoryComputer:
 
     def usbcamera_image_callback(self, image_msg):
         """
-        1. Compute the camera matrix based on the width and height of the video.
-        2. Create aruco instance in order to get the fixed world coordinates of the usbcamera relative to the aruco marker
+        Create aruco instance in order to get the fixed world coordinates of the usbcamera relative to the aruco marker
         """
         if not self.GET_PARAMS_USBCAMERA:
             return
         
         if image_msg is not None and self.GET_PARAMS_USBCAMERA is True:
-            w, h = image_msg.width, image_msg.height
-            scale_x = w / 3840
-            scale_y = h / 2160
-            # Scale intrinsic parameters
-            fx_scaled = 2481.80467 * scale_x
-            fy_scaled = 2484.001002 * scale_y
-            cx_scaled = 1891.149796 * scale_x
-            cy_scaled = 1079.160663 * scale_y
-
-            self.camera_matrix_usbcamera = np.array([
-                [fx_scaled, 0, cx_scaled],
-                [0, fy_scaled, cy_scaled],
-                [0, 0, 1]
-            ])
             aruco_instance_usbcamera = ArucoTask(self.dist_usbcamera, self.camera_matrix_usbcamera)
             coords, frame, marker_id, rvec, tvec = aruco_instance_usbcamera.fetch_camera_woorldCoordinates(image_msg, camera_type='usb_camera')
             # Store information across the class
@@ -223,7 +210,35 @@ class DualTrajectoryComputer:
                 rospy.loginfo(f"USB Camera ArUco calibration complete: Center={self.camera_center_usbcamera}, Orientation shape={self.camera_orientation_usbcamera.shape}")
                 self.GET_PARAMS_USBCAMERA = False # Only fetch once.
 
-    def pixel_to_3d_point(self, pixel_x, pixel_y, depth, camera_matrix, camera_center, camera_orientation):
+
+    def refract_dir(self, i, n, n1, n2):
+        """
+        Calculate the refracted direction of a ray given the incident direction, normal, and refractive indices.
+        Uses Snell's law to compute the refraction.
+        :param i: Incident direction vector
+        :param n: Normal vector at the point of incidence
+        :param n1: Refractive index of the medium from which the ray is coming
+        :param n2: Refractive index of the medium into which the ray is entering
+        """
+        i = i / np.linalg.norm(i)
+        n = n / np.linalg.norm(n)
+        cosi = float(np.clip(np.dot(i, n), -1.0, 1.0))
+        etai, etat = n1, n2
+        n_use = n
+        if cosi > 0.0:             # ray and normal on same side → we are exiting the medium 'etai'
+            n_use = -n_use
+            etai, etat = etat, etai
+            cosi = -cosi
+        eta = etai / etat
+        k = 1.0 - eta**2 * (1.0 - cosi**2)
+        if k < 0.0:
+            return None
+        t = eta * i + (eta * cosi - math.sqrt(k)) * n_use
+
+        return t / np.linalg.norm(t)
+    
+    
+    def pixel_to_3d_point(self, pixel_x, pixel_y, depth, K, camera_center, camera_orientation, dist_coeffs, water_n=1.333, air_n=1.00029):
         """
         Convert pixel coordinates to 3D point in camera frame.
         See ray and backward projection from the following sources:
@@ -231,17 +246,49 @@ class DualTrajectoryComputer:
         https://costinchitic.co/notes/Multiple-View-Geometry-in-Computer-Vision
         """
         # Convert pixel to normalized camera coordinates
-        pixel_coord = np.array([pixel_x, pixel_y, 1.0])
-        inv_cam_matrix = np.linalg.inv(camera_matrix)
-        ray_cam = inv_cam_matrix @ pixel_coord
+        pts = np.array([[[pixel_x, pixel_y]]], dtype=np.float64)
+        x_n, y_n = cv2.undistortPoints(pts, K, dist_coeffs)[0,0]
+        dC = np.array([x_n, y_n, 1.0], dtype=np.float64)               # not unit
+        d_air_W = camera_orientation @ dC
+        o_W = camera_center
+
+        # 2) intersect with water surface z=0
+        denom = d_air_W[2]
+        if abs(denom) < 1e-9:
+            rospy.logwarn("Ray parallel to water surface")
+            return None
+        s0 = (0.0 - o_W[2]) / denom
+        if s0 <= 0:
+            rospy.logwarn(f"Ray does not intersect water surface, or camera is below water surface, camera_z = {o_W[2]}")
+            return None
+        I0_W = o_W + s0 * d_air_W
+
+        # 3) compute refracted direction into water
+        # normal from air -> water (z up): n = [0,0,-1]
+        n_surface_up = np.array([0.0, 0.0, 1.0])
+        d_in = d_air_W / np.linalg.norm(d_air_W)
+        d_wtr = self.refract_dir(d_in, n_surface_up, air_n, water_n)
+        if d_wtr is None: 
+            rospy.logwarn("Ray does not refract into water, total internal reflection")
+            return None
+        X0_W = I0_W
+
+        # 4) intersect refracted ray with plane z = -depth
+        denom2 = d_wtr[2]
+        if abs(denom2) < 1e-9:
+            rospy.logwarn("Ray parallel to water surface after refraction")
+            return None
         
-        # The normalized coordinates give the direction, multiply by depth to get 3D point
-        plane_z = -depth # Depth is negative because the camera is underwater
-        alfa = (plane_z - camera_center[2]) / (camera_orientation @ ray_cam)[2]
-        
-        # Return intersection point in camera frame
-        camera_point_3d = alfa * ray_cam
-        return camera_point_3d
+        s1 = ((float(depth)) - X0_W[2]) / denom2
+        if s1 <= 0:
+            rospy.logwarn(f"Ray does not intersect water surface at depth {depth}, or camera is below water surface, camera_z = {X0_W[2]}")
+            return None
+        P_W = X0_W + s1 * d_wtr
+
+        # 5) return camera-frame point (so your TF step stays unchanged)
+        R_CW = camera_orientation.T
+        p_C = R_CW @ (P_W - o_W)
+        return p_C
 
     def gopro_coordinates_callback(self, msg):
 
@@ -260,7 +307,8 @@ class DualTrajectoryComputer:
                                                   depth, 
                                                   self.camera_matrix_gopro,
                                                   self.camera_center_gopro,
-                                                  self.camera_orientation_gopro
+                                                  self.camera_orientation_gopro,
+                                                  self.dist_gopro,
                                                   )
             world_coord = self.transform_point_to_world(ROV_3D_point, "gopro_camera", timestamp)
             # Publish coordinates for plotjugger
@@ -276,7 +324,6 @@ class DualTrajectoryComputer:
             odom.header.frame_id = "aruco_marker"
             odom.header.stamp = timestamp
             odom.header.seq = seq_gopro
-            seq_gopro += 1
             odom.child_frame_id = "gopro_camera"
             
             odom.pose.pose.position.x = world_coord[0]
@@ -302,6 +349,7 @@ class DualTrajectoryComputer:
                 last_point_gopro = odom
             
             ground_truth.publish(odom)
+            seq_gopro += 1
             
             # Plot to RViz
             self.add_pose_to_path(self.gopro_path, self.gopro_path_pub, *world_coord, timestamp)
@@ -322,7 +370,8 @@ class DualTrajectoryComputer:
                                                   depth, 
                                                   self.camera_matrix_usbcamera,
                                                   self.camera_center_usbcamera,
-                                                  self.camera_orientation_usbcamera
+                                                  self.camera_orientation_usbcamera,
+                                                  self.dist_usbcamera,
                                                   )
             world_coord = self.transform_point_to_world(ROV_3D_point, "usb_camera", timestamp)
             
@@ -340,7 +389,6 @@ class DualTrajectoryComputer:
             odom.header.frame_id = "aruco_marker"
             odom.header.stamp = timestamp
             odom.header.seq = seq_usbcamera
-            seq_usbcamera += 1
             odom.child_frame_id = "usb_camera"
             
             # Store world coordinates
@@ -367,6 +415,7 @@ class DualTrajectoryComputer:
                 last_point_usbcamera = odom
             
             estimation.publish(odom)
+            seq_usbcamera += 1
             
             # Add position to plotter
             self.add_pose_to_path(self.usbcamera_path, self.usbcamera_path_pub, *world_coord, timestamp)

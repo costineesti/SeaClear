@@ -37,7 +37,7 @@ class ArucoTask:
         aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         aruco_params = cv2.aruco.DetectorParameters()
         aruco_params.cornerRefinementWinSize = 11
-        aruco_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_CONTOUR
+        aruco_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
 
         try:
             # For OpenCV 4.5.0+ (new API)
@@ -89,7 +89,7 @@ class ArucoTask:
                                 [-marker_length/2, -marker_length/2, 0]])
             
             for corner in corners:
-                retval, rvec, tvec = cv2.solvePnP(objPoints, corner, camera_matrix, dist)
+                retval, rvec, tvec = cv2.solvePnP(objPoints, corner, camera_matrix, dist, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 rvecs.append(rvec)
                 tvecs.append(np.array([tvec]).reshape(1,3))
 
