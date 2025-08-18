@@ -47,9 +47,7 @@ After I fetch \(R\) and \(t\), I pass them to `publish_camera_to_aruco_transform
 
 Starting from:
 
-\[
-X_C = R \cdot X_W + t
-\]
+X_C = R * X_W + t
 
 Multiply on the left with \(R^\top\):
 
