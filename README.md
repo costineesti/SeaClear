@@ -1,23 +1,4 @@
 Personal repo of [SeaClear](https://costinchitic.co/seaclear) project. Also to keep track of my contribution.
-Mainly applying computer vision and computations. 
-ROS1 + Python. 
-Soon C++ for all of my contributions
-
-
-My contribution so far in coding:
-* src/
-* include/
-* scripts/aruco.py
-* scripts/grid_detection.py
-* scripts/camera_sync_recorder.py
-* scripts/mp4_to_rosbag.py
-* scripts/extract_frames.py
-* scripts/dualtrajectoryplotter.py
-* scripts/rov_prediction_cnn.py
-* scripts/color_gopro
-* scripts/color_usbcamera
-* *.sh
-
 
 ---
 # Logic behind `dualtrajectoryplotter.py` pipeline of transformations
@@ -45,7 +26,7 @@ After I fetch $R$ and $t$, I pass them to `publish_camera_to_aruco_transform()` 
 
 Starting from:
 
-$X\_C = R \\cdot X\_W + t$
+$$X\_C = R \\cdot X\_W + t$$
 
 Multiply on the left with $R^\\top$:
 
@@ -88,7 +69,7 @@ When I back-project a pixel into 3D (`pixel_to_3d_point`), the result is express
 
 $$p_C = \begin{bmatrix} x_c \\ y_c \\ z_c \end{bmatrix}$$
 
-To interpret this in the **world (aruco) frame**, I use TF. Since TF already knows the static transform
+To interpret this in the **world (aruco) frame**, I use TF. Since TF already knows the static transform,
 
 $$
 T_{C \to W} =
@@ -96,7 +77,9 @@ T_{C \to W} =
 R^\top & -R^\top t \\
 0 & 1
 \end{bmatrix},
-$$it can convert the point as:
+$$
+
+it can convert the point as:
 
 $$p_W = R^\top \cdot p_C + (-R^\top t)$$
 
