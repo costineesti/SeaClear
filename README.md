@@ -92,20 +92,16 @@ This tells TF: “the pose of the camera is defined relative to the aruco_marker
 
 When I back-project a pixel into 3D (`pixel_to_3d_point`), the result is expressed in the **camera frame**:
 
-\[
-p_C = \begin{bmatrix} x_c \\ y_c \\ z_c \end{bmatrix}
-\]
+\[ p_C = \begin{bmatrix} x_c \\ y_c \\ z_c \end{bmatrix} \]
 
-To interpret this in the **world (aruco) frame**, I use TF.  
-
-Since TF already knows the static transform
+To interpret this in the **world (aruco) frame**, I use TF. Since TF already knows the static transform
 
 \[
 T_{C \to W} =
 \begin{bmatrix}
 R^\top & -R^\top t \\
 0 & 1
-\end{bmatrix}
+\end{bmatrix},
 \]
 
 it can convert the point as:
@@ -114,4 +110,4 @@ it can convert the point as:
 p_W = R^\top \cdot p_C + (-R^\top t)
 \]
 
-Thus, TF takes care of expressing any point measured in the camera frame into the common world (aruco marker) frame.
+Thus, TF takes care of expressing any point measured in the camera frame into the common world (aruco_marker) frame.
