@@ -255,7 +255,7 @@ class GridOverlayNode:
             cv2.imshow("ROI Frame", roi_frame) # Show the ROI frame for debugging
             edges = self.preprocess(roi_frame)
                                                             # POSTPROCESSING #
-            lsd = cv2.createLineSegmentDetector(0) # Source: https://costinchitic.co/notes/Line-Segment-Detector
+            lsd = cv2.createLineSegmentDetector(0) # Source: https://costinchitic.wiki/notes/Line-Segment-Detector
             # Use cv2.ximgproc.createFastLineDetector() for OpenCV newer than 4.1.0!
             lsd_lines = lsd.detect(edges)[0] # Mainly used to get generalWidth and generalHeight. Reliable method.
             horizontal_lines, vertical_lines = self.computeGridLines(lsd_lines)

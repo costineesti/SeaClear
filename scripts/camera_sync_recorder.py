@@ -43,7 +43,7 @@ class CameraSyncRecorder:
 
     def setup_metadata_buffers(self):
         """
-        source: https://costinchitic.co/notes/UVC-Video-Stream
+        source: https://costinchitic.wiki/notes/UVC-Video-Stream
         """
         req = v4l2.v4l2_requestbuffers()
         req.count = 4

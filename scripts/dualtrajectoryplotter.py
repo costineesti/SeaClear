@@ -24,10 +24,10 @@ class DualTrajectoryComputer:
 
                                                 # === CONSTANTS GOPRO ===
         self.timestamp_gopro = None
-        self.camera_matrix_gopro = np.array(((927.091270, 0.000000, 957.570804), 
-                                       (0.000000, 919.995427, 533.540912), 
-                                       (0.000000, 0.000000, 1.000000)))
-        self.dist_gopro = np.array((0.05, 0.07, -0.11, 0.05, 0.000000)) # Need to be fact checked
+        self.camera_matrix_gopro = np.array(((1.00314412e+03, 0.000000, 9.54105008e+02),
+                                             (0.000000, 9.98774705e+02, 5.42888665e+02),
+                                             (0.000000, 0.00000000e+00, 1.000000)))
+        self.dist_gopro = np.array([0.00429666, -0.00949222, 0.00217127, -0.00283602, 0.00417207])
         self.camera_center_gopro = None
         self.camera_orientation_gopro = None
         self.GET_PARAMS_GOPRO = True
@@ -87,7 +87,7 @@ class DualTrajectoryComputer:
 
     def publish_camera_to_aruco_transform(self, rvec, tvec, camera_frame, timestamp):
         """
-        Publish transform: camera_frame -> aruco_marker
+        Publish transform: aruco_marker -> camera_frame
         This represents where the marker is relative to the camera.
         """
         if timestamp is None:
@@ -215,25 +215,25 @@ class DualTrajectoryComputer:
         """
         Calculate the refracted direction of a ray given the incident direction, normal, and refractive indices.
         Uses Snell's law to compute the refraction.
-        :param i: Incident direction vector
+        :param i: Incident direction vector of the ray
         :param n: Normal vector at the point of incidence
         :param n1: Refractive index of the medium from which the ray is coming
         :param n2: Refractive index of the medium into which the ray is entering
         """
         i = i / np.linalg.norm(i)
         n = n / np.linalg.norm(n)
-        cosi = float(np.clip(np.dot(i, n), -1.0, 1.0))
+        cosi = float(np.clip(np.dot(i, n), -1.0, 1.0)) # limit to [-1, 1].
         etai, etat = n1, n2
         n_use = n
-        if cosi > 0.0:             # ray and normal on same side → we are exiting the medium 'etai'
+        if cosi > 0.0: # ray and normal are pointing the same way → we are leaving the medium, so swap indices and flip normal
             n_use = -n_use
             etai, etat = etat, etai
             cosi = -cosi
         eta = etai / etat
-        k = 1.0 - eta**2 * (1.0 - cosi**2)
+        k = 1.0 - eta**2 * (1.0 - cosi**2) # Snell's law
         if k < 0.0:
-            return None
-        t = eta * i + (eta * cosi - math.sqrt(k)) * n_use
+            return None # Total internal reflection
+        t = eta * i + (eta * cosi - math.sqrt(k)) * n_use # Refracted direction
 
         return t / np.linalg.norm(t)
     
@@ -242,8 +242,9 @@ class DualTrajectoryComputer:
         """
         Convert pixel coordinates to 3D point in camera frame.
         See ray and backward projection from the following sources:
-        Source: https://costinchitic.co/notes/camera-backward-projection
-        https://costinchitic.co/notes/Multiple-View-Geometry-in-Computer-Vision
+        Source: https://costinchitic.wiki/notes/camera-backward-projection
+        https://costinchitic.wiki/notes/Multiple-View-Geometry-in-Computer-Vision
+        https://costinchitic.wiki/notes/coordinate-frame
         """
         # Convert pixel to normalized camera coordinates
         pts = np.array([[[pixel_x, pixel_y]]], dtype=np.float64)
@@ -264,7 +265,7 @@ class DualTrajectoryComputer:
         I0_W = o_W + s0 * d_air_W
 
         # 3) compute refracted direction into water
-        # normal from air -> water (z up): n = [0,0,-1]
+        # normal from air -> water (z up): n = [0,0,1]
         n_surface_up = np.array([0.0, 0.0, 1.0])
         d_in = d_air_W / np.linalg.norm(d_air_W)
         d_wtr = self.refract_dir(d_in, n_surface_up, air_n, water_n)
