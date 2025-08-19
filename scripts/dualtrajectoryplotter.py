@@ -242,7 +242,7 @@ class DualTrajectoryComputer:
         """
         Convert pixel coordinates to 3D point in camera frame.
         See ray and backward projection from the following sources:
-        Source: https://costinchitic.wiki/notes/camera-backward-projection
+        Sources: https://costinchitic.wiki/notes/camera-backward-projection
         https://costinchitic.wiki/notes/Multiple-View-Geometry-in-Computer-Vision
         https://costinchitic.wiki/notes/coordinate-frame
         """
